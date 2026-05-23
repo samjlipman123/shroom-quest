@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>SHROOM RUN — Massive Edition</title>
+<title>SHROOM ADVENTURE — Arrow Keys</title>
 <style>
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden;
     display: flex; align-items: center; justify-content: center;
@@ -16,15 +16,15 @@
 </head>
 <body>
 <canvas id="c" width="256" height="240"></canvas>
-<div id="cap">CLICK / TAP / SPACE — TAP AGAIN IN AIR FOR DOUBLE JUMP — STOMP TO COMBO</div>
+<div id="cap">← → MOVE &nbsp;·&nbsp; ↑ / SPACE JUMP &nbsp;·&nbsp; TAP AGAIN IN AIR = DOUBLE JUMP</div>
 <script>
 (() => {
 'use strict';
 
 // ═══════════════════════════════════════════════════════════════
-//  PALETTES — sprite colors stay constant; biome colors swap
+//  PALETTES
 // ═══════════════════════════════════════════════════════════════
-const SP = {  // sprite & tile static colors
+const SP = {
   hatR:'#D82800', shirtR:'#D82800', pants:'#0058F8',
   skin:'#FCBCB0', hair:'#6C4400', shoe:'#6C4400',
   shellG:'#00A800', shellD:'#005800', shellH:'#80D010',
@@ -53,18 +53,17 @@ const BIOMES = [
     mountain:'#180000', flag:'#FCD800', decorTrees: false },
 ];
 const BIOME_LEN = 800;
-function biomeIdx() { return Math.floor(distance / BIOME_LEN) % BIOMES.length; }
+function biomeIdx() { return Math.floor(Math.max(0, distance) / BIOME_LEN) % BIOMES.length; }
 function biome() { return BIOMES[biomeIdx()]; }
-// brief flash transition right after biome change
 function biomeTransition() {
-  const p = (distance % BIOME_LEN) / BIOME_LEN;
-  return p < 0.03 ? (1 - p / 0.03) : 0;   // 0..1, decays to 0
+  const d = Math.max(0, distance);
+  const p = (d % BIOME_LEN) / BIOME_LEN;
+  return p < 0.03 ? (1 - p / 0.03) : 0;
 }
 
 const VW = 256, VH = 240, TILE = 16;
 const LH = 15;
 const GROUND_ROW = 12;
-const PLAYER_SCREEN_X = 56;
 const cnv = document.getElementById('c');
 const ctx = cnv.getContext('2d');
 ctx.imageSmoothingEnabled = false;
@@ -102,17 +101,17 @@ const sfx = {
   djump: () => { blip(660, 0.06, 'square', 0.22, 200); setTimeout(()=>blip(990, 0.08, 'square', 0.22), 50); },
   coin:  () => { blip(880, 0.05, 'square', 0.20); setTimeout(()=>blip(1320, 0.08, 'square', 0.20), 50); },
   stomp: () => { blip(220, 0.10, 'triangle', 0.22, -120); },
-  combo: (n) => { [523, 659, 784, 1047, 1319][Math.min(4, n-2)] && blip([523,659,784,1047,1319][Math.min(4,n-2)], 0.10, 'square', 0.22); },
+  combo: (n) => { const f=[523,659,784,1047,1319][Math.min(4, n-2)]; if (f) blip(f, 0.10, 'square', 0.22); },
   power: () => { [523,659,784,1047,1319].forEach((f,i)=>setTimeout(()=>blip(f,0.10,'square',0.22),i*55)); },
   die:   () => { [523,659,784,1047,1319,1568].forEach((f,i)=>setTimeout(()=>blip(f,0.16,'square',0.24),i*100)); },
   biome: () => { [392,523,659].forEach((f,i)=>setTimeout(()=>blip(f,0.18,'triangle',0.22),i*70)); },
 };
 
 // ═══════════════════════════════════════════════════════════════
-//  WORLD GENERATION
+//  WORLD GENERATION (forward-only, gentler than runner)
 // ═══════════════════════════════════════════════════════════════
 const cols = new Map();
-let generatedTo = -1, safeRun = 28, lastObstacle = null;
+let generatedTo = -1, safeRun = 30, lastObstacle = null;
 const turtles = [];
 const koopas = [];
 
@@ -130,7 +129,6 @@ function brickTiles(stack) {
   for (let i = 0; i < stack; i++) t[GROUND_ROW - 2 - i] = 'B';
   return t;
 }
-
 function setCol(col, tiles, extras={}) { cols.set(col, { tiles, ...extras }); }
 
 function generateUpTo(targetCol) {
@@ -139,16 +137,16 @@ function generateUpTo(targetCol) {
     if (safeRun > 0) {
       const c = { tiles: groundTiles() };
       const r = Math.random();
-      if (r < 0.22) c.coinH = 2 + Math.floor(Math.random() * 3);
-      else if (r < 0.24 && safeRun > 3) c.mushH = 2;
+      if (r < 0.25) c.coinH = 2 + Math.floor(Math.random() * 3);
+      else if (r < 0.27 && safeRun > 3) c.mushH = 2;
       cols.set(col, c);
-      // chance to spawn a flying koopa in safe air
-      if (Math.random() < 0.03 && safeRun > 6 && distance > 80) {
+      // gentle flying koopa spawn
+      if (Math.random() < 0.02 && safeRun > 8 && col > 16) {
         koopas.push({
           wx: col * TILE,
           wyBase: (GROUND_ROW - 3) * TILE,
           phase: Math.random() * 6,
-          vx: -0.5 - Math.random() * 0.4,
+          vx: -0.35 - Math.random() * 0.25,
           alive: true, deadTimer: 0, wing: 0,
         });
       }
@@ -159,12 +157,11 @@ function generateUpTo(targetCol) {
     let kind;
     do {
       const r = Math.random();
-      if (r < 0.22) kind = 'pit';
+      if (r < 0.20) kind = 'pit';
       else if (r < 0.40) kind = 'pipeShort';
       else if (r < 0.55) kind = 'pipeTall';
-      else if (r < 0.66) kind = 'brick';
-      else if (r < 0.80) kind = 'turtle';
-      else if (r < 0.90) kind = 'turtlePit';
+      else if (r < 0.68) kind = 'brick';
+      else if (r < 0.85) kind = 'turtle';
       else kind = 'doublePipe';
     } while (kind === lastObstacle && Math.random() < 0.5);
     lastObstacle = kind;
@@ -173,40 +170,31 @@ function generateUpTo(targetCol) {
       const w = 1 + Math.floor(Math.random() * 2);
       for (let i = 0; i < w; i++) setCol(col + i, pitTiles());
       col += w;
-      safeRun = 5 + Math.floor(Math.random() * 4);
+      safeRun = 6 + Math.floor(Math.random() * 5);
     } else if (kind === 'pipeShort') {
       setCol(col, pipeTiles(1 + Math.floor(Math.random() * 2))); col++;
-      safeRun = 5 + Math.floor(Math.random() * 4);
+      safeRun = 6 + Math.floor(Math.random() * 4);
     } else if (kind === 'pipeTall') {
       setCol(col, pipeTiles(3)); col++;
-      safeRun = 6 + Math.floor(Math.random() * 4);
+      safeRun = 7 + Math.floor(Math.random() * 4);
     } else if (kind === 'brick') {
       setCol(col, brickTiles(1)); col++;
-      safeRun = 4 + Math.floor(Math.random() * 3);
+      safeRun = 5 + Math.floor(Math.random() * 3);
     } else if (kind === 'turtle') {
       cols.set(col, { tiles: groundTiles() });
       turtles.push({
         wx: col * TILE, wy: (GROUND_ROW * TILE) - 14,
-        vx: -0.4 - Math.random() * 0.2, wobble: Math.random() * 6,
+        vx: -0.3 - Math.random() * 0.2, wobble: Math.random() * 6,
         alive: true, deadTimer: 0,
       });
       col++;
-      safeRun = 5 + Math.floor(Math.random() * 4);
-    } else if (kind === 'turtlePit') {
-      cols.set(col, { tiles: groundTiles() });
-      turtles.push({
-        wx: col * TILE, wy: (GROUND_ROW * TILE) - 14,
-        vx: -0.4, wobble: 0, alive: true, deadTimer: 0,
-      });
-      setCol(col + 1, pitTiles());
-      col += 2;
       safeRun = 6 + Math.floor(Math.random() * 4);
     } else if (kind === 'doublePipe') {
       setCol(col, pipeTiles(2));
       setCol(col + 1, { tiles: groundTiles() });
       setCol(col + 2, pipeTiles(1));
       col += 3;
-      safeRun = 6 + Math.floor(Math.random() * 4);
+      safeRun = 7 + Math.floor(Math.random() * 4);
     }
   }
   generatedTo = Math.max(generatedTo, targetCol);
@@ -227,23 +215,31 @@ function cullBehind(behindCol) { for (const k of cols.keys()) if (k < behindCol)
 //  STATE
 // ═══════════════════════════════════════════════════════════════
 const P_W = 12, P_H = 14;
-const SCROLL_INITIAL = 1.4;
-let player, scrollSpeed, score, distance, started, gameOver, deathTimer;
+// physics
+const ACCEL = 0.35, DECEL = 0.5, FRICTION = 0.28, MAX_SPEED = 2.0;
+const JUMP_V = -6.4, DJUMP_V = -5.4;
+const GRAVITY = 0.32, MAX_FALL = 6.5;
+const COYOTE_FRAMES = 5;
+const JUMP_BUFFER_FRAMES = 6;
+
+let player, score, distance, started, gameOver, deathTimer;
 let happyDeath = 0, deathPos = null;
 let powerTime = 0, combo = 0, comboTimer = 0;
 let particles = [], shockwaves = [], floaters = [];
 let trail = [];
 let shake = 0;
+let cameraX = 0;
 let lastBiome = 0;
 const clouds = [], towers = [], buildings = [], trees = [];
-let highScore = +(localStorage.getItem('shroomRunHigh') || 0);
+let highScore = +(localStorage.getItem('shroomAdvHigh') || 0);
 let tick = 0;
+let maxX = 0;   // furthest x reached (for distance & scoring)
 
-function spawnConfetti(x, y, n, opts = {}) {
+function spawnConfetti(wx, wy, n, opts = {}) {
   const colors = opts.colors || ['#D82800','#0058F8','#FCD800','#00A800','#FCFCFC','#8000B0','#FC9838'];
   for (let i = 0; i < n; i++) {
     particles.push({
-      x, y,
+      wx, wy,
       vx: (Math.random() - 0.5) * (opts.spread || 5),
       vy: -Math.random() * (opts.up || 4) - 1,
       life: opts.life || 50, maxLife: opts.life || 50,
@@ -252,11 +248,11 @@ function spawnConfetti(x, y, n, opts = {}) {
     });
   }
 }
-function spawnShockwave(x, y) {
-  shockwaves.push({ x, y, r: 4, maxR: 26, life: 18, maxLife: 18 });
+function spawnShockwave(wx, wy) {
+  shockwaves.push({ wx, wy, r: 4, maxR: 26, life: 18, maxLife: 18 });
 }
-function spawnFloater(x, y, text, color) {
-  floaters.push({ x, y, vy: -1.0, text, color, life: 50, maxLife: 50 });
+function spawnFloater(wx, wy, text, color) {
+  floaters.push({ wx, wy, vy: -1.0, text, color, life: 50, maxLife: 50 });
 }
 
 function reset() {
@@ -264,14 +260,15 @@ function reset() {
   turtles.length = 0; koopas.length = 0;
   particles.length = 0; shockwaves.length = 0; floaters.length = 0;
   trail.length = 0;
-  generatedTo = -1; safeRun = 28; lastObstacle = null;
+  generatedTo = -1; safeRun = 30; lastObstacle = null;
   player = {
-    wx: PLAYER_SCREEN_X, y: GROUND_ROW * TILE - P_H,
-    vy: 0, onGround: false, anim: 0, jumpHold: 0,
-    djAvailable: false, sq: 0,
+    wx: 24, y: GROUND_ROW * TILE - P_H,
+    vx: 0, vy: 0, onGround: false, anim: 0,
+    jumpHold: 0, jumpBuffer: 0, coyote: 0,
+    djAvailable: false, facing: 1, sq: 0,
   };
-  scrollSpeed = SCROLL_INITIAL;
-  score = 0; distance = 0;
+  cameraX = 0;
+  score = 0; distance = 0; maxX = 0;
   gameOver = false;
   happyDeath = 0; deathPos = null; deathTimer = 0;
   powerTime = 0; combo = 0; comboTimer = 0;
@@ -285,22 +282,53 @@ function reset() {
 }
 
 // ── Input ──
-let jumpReq = false, jumpHeld = false;
-function press(e) {
-  if (e && e.preventDefault) e.preventDefault();
+const keys = {};
+let jumpBufferReq = false;
+function keyToAction(code) {
+  if (code === 'ArrowLeft' || code === 'KeyA') return 'left';
+  if (code === 'ArrowRight' || code === 'KeyD') return 'right';
+  if (code === 'ArrowUp' || code === 'KeyW' || code === 'Space') return 'jump';
+  if (code === 'KeyM') return 'mute';
+  return null;
+}
+addEventListener('keydown', e => {
+  const a = keyToAction(e.code);
+  if (!a) return;
+  e.preventDefault();
+  audioBoot();
+  if (a === 'mute') {
+    muted = !muted; if (master) master.gain.value = muted ? 0 : 0.3;
+    return;
+  }
+  if (!started) { started = true; return; }
+  if (gameOver) { if (deathTimer > 24) reset(); return; }
+  if (!keys[a]) {
+    if (a === 'jump') jumpBufferReq = true;
+  }
+  keys[a] = true;
+});
+addEventListener('keyup', e => {
+  const a = keyToAction(e.code);
+  if (a && a !== 'mute') keys[a] = false;
+});
+// touch: simple two-zone touch (left half = left, right half = jump). Hold to walk.
+let touchLeft = false, touchRight = false, touchJump = false;
+cnv.addEventListener('pointerdown', e => {
+  e.preventDefault();
   audioBoot();
   if (!started) { started = true; return; }
   if (gameOver) { if (deathTimer > 24) reset(); return; }
-  jumpReq = true; jumpHeld = true;
-}
-function release() { jumpHeld = false; }
-addEventListener('keydown', e => {
-  if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') { if (!e.repeat) press(e); }
-  if (e.code === 'KeyM') { muted = !muted; if (master) master.gain.value = muted ? 0 : 0.3; }
+  const rect = cnv.getBoundingClientRect();
+  const relX = (e.clientX - rect.left) / rect.width;
+  if (relX < 0.33) { keys.left = touchLeft = true; }
+  else if (relX < 0.66) { keys.jump = touchJump = true; jumpBufferReq = true; }
+  else { keys.right = touchRight = true; }
 });
-addEventListener('keyup', e => { if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') release(); });
-cnv.addEventListener('pointerdown', press);
-addEventListener('pointerup', release);
+addEventListener('pointerup', e => {
+  if (touchLeft) { keys.left = touchLeft = false; }
+  if (touchRight) { keys.right = touchRight = false; }
+  if (touchJump) { keys.jump = touchJump = false; }
+});
 cnv.addEventListener('contextmenu', e => e.preventDefault());
 
 reset();
@@ -308,91 +336,114 @@ reset();
 // ═══════════════════════════════════════════════════════════════
 //  UPDATE
 // ═══════════════════════════════════════════════════════════════
-function bumpCombo(stompX, stompY) {
+function bumpCombo(wx, wy) {
   combo++;
   comboTimer = 90;
   sfx.combo(combo);
   if (combo >= 2) {
     const colors = [SP.coin, '#FC9838', '#D82800', '#8000B0', '#00FFFF'];
-    spawnFloater(stompX, stompY - 10, 'x' + combo + '!', colors[Math.min(4, combo - 2)]);
+    spawnFloater(wx, wy - 10, 'x' + combo + '!', colors[Math.min(4, combo - 2)]);
   }
 }
 
 function update() {
   tick++;
 
-  // ── biome change?
+  // biome change?
   const bi = biomeIdx();
   if (bi !== lastBiome) {
     sfx.biome();
-    spawnConfetti(VW/2, 60, 30, { spread: 8, up: 5, life: 70 });
+    spawnConfetti(player.wx, player.y, 30, { spread: 8, up: 5, life: 70 });
     lastBiome = bi;
   }
 
-  // particles / shockwaves / floaters always update
-  for (const pt of particles) { pt.x += pt.vx; pt.y += pt.vy; pt.vy += 0.16; pt.life--; }
+  // always-on updates
+  for (const pt of particles) { pt.wx += pt.vx; pt.wy += pt.vy; pt.vy += 0.16; pt.life--; }
   particles = particles.filter(p => p.life > 0);
   for (const sw of shockwaves) { sw.r += (sw.maxR - sw.r) * 0.25; sw.life--; }
   shockwaves = shockwaves.filter(s => s.life > 0);
-  for (const f of floaters) { f.y += f.vy; f.vy *= 0.96; f.life--; }
+  for (const f of floaters) { f.wy += f.vy; f.vy *= 0.96; f.life--; }
   floaters = floaters.filter(f => f.life > 0);
   if (shake > 0) shake = Math.max(0, shake - 0.5);
 
-  // ── happy death animation ──
   if (happyDeath > 0) {
     happyDeath--;
-    if (happyDeath % 4 === 0 && deathPos) spawnConfetti(deathPos.x, deathPos.y, 8, { up: 5 });
+    if (happyDeath % 4 === 0 && deathPos) spawnConfetti(deathPos.wx, deathPos.wy, 8, { up: 5 });
     if (happyDeath === 0) { gameOver = true; deathTimer = 0; }
     return;
   }
   if (gameOver) { deathTimer++; return; }
   if (!started) return;
 
-  // difficulty
-  scrollSpeed = SCROLL_INITIAL + Math.min(1.8, distance / 1500);
+  // ── Horizontal input ──
+  const wantLeft = !!keys.left, wantRight = !!keys.right;
+  if (wantLeft && !wantRight) {
+    if (player.vx > 0) player.vx = Math.max(0, player.vx - DECEL);
+    else { player.vx = Math.max(-MAX_SPEED, player.vx - ACCEL); }
+    player.facing = -1;
+  } else if (wantRight && !wantLeft) {
+    if (player.vx < 0) player.vx = Math.min(0, player.vx + DECEL);
+    else { player.vx = Math.min(MAX_SPEED, player.vx + ACCEL); }
+    player.facing = 1;
+  } else {
+    if (player.vx > 0) player.vx = Math.max(0, player.vx - FRICTION);
+    else if (player.vx < 0) player.vx = Math.min(0, player.vx + FRICTION);
+  }
 
-  // jump (with double jump)
-  if (jumpReq) {
-    if (player.onGround) {
-      player.vy = -6.4; player.onGround = false; player.jumpHold = 14;
+  // ── Jump (buffer + coyote + double) ──
+  if (jumpBufferReq) { player.jumpBuffer = JUMP_BUFFER_FRAMES; jumpBufferReq = false; }
+  if (player.jumpBuffer > 0) {
+    if (player.onGround || player.coyote > 0) {
+      player.vy = JUMP_V;
+      player.onGround = false;
+      player.jumpHold = 14;
+      player.coyote = 0;
+      player.jumpBuffer = 0;
       player.djAvailable = true;
       sfx.jump();
-      spawnConfetti(PLAYER_SCREEN_X + 6, player.y + P_H, 4, { spread: 2, up: 0, life: 14, colors:['#FCBCB0','#FCFCFC'] });
+      spawnConfetti(player.wx + 6, player.y + P_H, 4, { spread: 2, up: 0, life: 14, colors:['#FCBCB0','#FCFCFC'] });
     } else if (player.djAvailable) {
-      player.vy = -5.4; player.jumpHold = 10;
+      player.vy = DJUMP_V;
+      player.jumpHold = 10;
       player.djAvailable = false;
+      player.jumpBuffer = 0;
       sfx.djump();
-      // burst ring on double jump
-      spawnShockwave(PLAYER_SCREEN_X + 6, player.y + P_H/2);
-      spawnConfetti(PLAYER_SCREEN_X + 6, player.y + P_H/2, 10, { spread: 4, up: 1 });
+      spawnShockwave(player.wx + 6, player.y + P_H/2);
+      spawnConfetti(player.wx + 6, player.y + P_H/2, 10, { spread: 4, up: 1 });
+    } else {
+      player.jumpBuffer--;
     }
   }
-  jumpReq = false;
-  if (player.jumpHold > 0 && player.vy < 0 && jumpHeld) player.jumpHold--;
-  else if (player.vy < -2 && !jumpHeld) { player.vy = -2; player.jumpHold = 0; }
+  if (player.jumpHold > 0 && player.vy < 0 && keys.jump) player.jumpHold--;
+  else if (player.vy < -2 && !keys.jump) { player.vy = -2; player.jumpHold = 0; }
 
   // gravity
-  player.vy += 0.32;
-  if (player.vy > 6.5) player.vy = 6.5;
+  player.vy += GRAVITY;
+  if (player.vy > MAX_FALL) player.vy = MAX_FALL;
 
-  // advance world
-  player.wx += scrollSpeed;
-  distance = Math.floor((player.wx - PLAYER_SCREEN_X) / 8);
-
-  // generate ahead, cull behind
-  generateUpTo(Math.floor((player.wx + VW + 96) / TILE));
-  if (tick % 60 === 0) cullBehind(Math.floor(player.wx / TILE) - 20);
-
-  // X-collision with tile → die
+  // ── X move + collide ──
+  player.wx += player.vx;
+  // left bound
+  if (player.wx < 0) { player.wx = 0; player.vx = 0; }
   let xL = Math.floor(player.wx / TILE);
   let xR = Math.floor((player.wx + P_W - 1) / TILE);
   let yT = Math.floor(player.y / TILE);
   let yB = Math.floor((player.y + P_H - 1) / TILE);
-  for (let ty = yT; ty <= yB; ty++) { if (solidAt(xR, ty)) { die(); return; } }
+  if (player.vx > 0) {
+    for (let ty = yT; ty <= yB; ty++) {
+      if (solidAt(xR, ty)) { player.wx = xR * TILE - P_W; player.vx = 0; break; }
+    }
+  } else if (player.vx < 0) {
+    for (let ty = yT; ty <= yB; ty++) {
+      if (solidAt(xL, ty)) { player.wx = (xL + 1) * TILE; player.vx = 0; break; }
+    }
+  }
 
-  // Y move + collide
+  // ── Y move + collide ──
   const wasOnGround = player.onGround;
   player.y += player.vy;
+  xL = Math.floor(player.wx / TILE);
+  xR = Math.floor((player.wx + P_W - 1) / TILE);
   yT = Math.floor(player.y / TILE);
   yB = Math.floor((player.y + P_H - 1) / TILE);
   player.onGround = false;
@@ -400,10 +451,9 @@ function update() {
     for (let tx = xL; tx <= xR; tx++) {
       if (solidAt(tx, yB)) {
         player.y = yB * TILE - P_H;
-        // landing squash + dust
         if (!wasOnGround && player.vy > 3) {
           player.sq = 1.0;
-          spawnConfetti(PLAYER_SCREEN_X + 6, player.y + P_H, 5, { spread: 2.5, up: 0.5, life: 14, colors:['#FCBCB0','#FCFCFC'] });
+          spawnConfetti(player.wx + 6, player.y + P_H, 5, { spread: 2.5, up: 0.5, life: 14, colors:['#FCBCB0','#FCFCFC'] });
           shake = Math.min(3, shake + 1.6);
         }
         player.vy = 0;
@@ -420,20 +470,33 @@ function update() {
   }
   if (player.sq > 0) player.sq = Math.max(0, player.sq - 0.12);
 
-  // trail when airborne
-  if (!player.onGround) {
-    trail.unshift({ x: PLAYER_SCREEN_X, y: player.y, anim: player.anim });
+  // coyote time
+  if (player.onGround) player.coyote = COYOTE_FRAMES;
+  else if (player.coyote > 0) player.coyote--;
+
+  // trail when airborne and moving
+  if (!player.onGround && Math.abs(player.vx) > 0.2) {
+    trail.unshift({ wx: player.wx, y: player.y, anim: player.anim, facing: player.facing });
     if (trail.length > 5) trail.length = 5;
   } else if (trail.length) trail.length = Math.max(0, trail.length - 1);
 
-  if (player.onGround) player.anim += scrollSpeed * 0.18;
+  // walk animation
+  if (player.onGround && Math.abs(player.vx) > 0.3) player.anim += Math.abs(player.vx) * 0.22;
+
+  // distance: track furthest x
+  if (player.wx > maxX) maxX = player.wx;
+  distance = Math.floor(maxX / 8);
 
   if (player.y > VH + 30) { die(); return; }
+
+  // generate ahead, cull behind
+  generateUpTo(Math.floor((player.wx + VW) / TILE) + 4);
+  if (tick % 60 === 0) cullBehind(Math.floor(player.wx / TILE) - 20);
 
   // combo decay
   if (comboTimer > 0) { comboTimer--; if (comboTimer === 0) combo = 0; }
 
-  // ── coin & mushroom pickups ──
+  // coin & mushroom pickups
   for (let tx = xL; tx <= xR; tx++) {
     const c = cols.get(tx);
     if (!c) continue;
@@ -444,8 +507,8 @@ function update() {
         const bonus = 100 * Math.max(1, combo);
         score += bonus;
         sfx.coin();
-        spawnFloater(PLAYER_SCREEN_X, cy, '+' + bonus, SP.coin);
-        spawnConfetti(PLAYER_SCREEN_X + 6, cy + 4, 5, { colors: [SP.coin, '#FC9838'] });
+        spawnFloater(player.wx, cy, '+' + bonus, SP.coin);
+        spawnConfetti(player.wx + 6, cy + 4, 5, { colors: [SP.coin, '#FC9838'] });
       }
     }
     if (c.mushH !== undefined) {
@@ -453,65 +516,75 @@ function update() {
       if (player.y < my + 16 && player.y + P_H > my) {
         delete c.mushH;
         score += 500;
-        powerTime = 240;
+        powerTime = 360;
         sfx.power();
-        spawnFloater(PLAYER_SCREEN_X, my, 'POWER!', '#FC00FF');
-        spawnShockwave(PLAYER_SCREEN_X + 6, my + 6);
+        spawnFloater(player.wx, my, 'POWER!', '#FC00FF');
+        spawnShockwave(player.wx + 6, my + 6);
       }
     }
   }
 
   if (powerTime > 0) powerTime--;
 
-  // ── ground turtles ──
+  // turtles
   for (const t of turtles) {
     if (!t.alive) { t.deadTimer--; t.wy += 0.5; continue; }
     t.wx += t.vx; t.wobble += 0.12;
+    // bounce off pipe walls
+    const ftx = t.vx < 0 ? Math.floor(t.wx / TILE) : Math.floor((t.wx + 12) / TILE);
+    const fty = Math.floor((t.wy + 6) / TILE);
+    if (solidAt(ftx, fty)) t.vx = -t.vx;
     if (overlap(t.wx, t.wy, 12, 12, player.wx, player.y, P_W, P_H)) {
-      handleEnemyHit(t, 500, 'turtle');
+      handleEnemyHit(t, 500);
       if (gameOver || happyDeath > 0) return;
     }
   }
   for (let i = turtles.length - 1; i >= 0; i--)
-    if (turtles[i].wx < player.wx - VW || turtles[i].deadTimer < -30) turtles.splice(i, 1);
+    if (turtles[i].wx < player.wx - VW * 2 || turtles[i].deadTimer < -30) turtles.splice(i, 1);
 
-  // ── flying koopas ──
+  // flying koopas
   for (const k of koopas) {
     if (!k.alive) { k.deadTimer--; k.wyBase += 0.6; k.wing = 0; continue; }
     k.wx += k.vx; k.phase += 0.10; k.wing += 0.5;
     const wy = k.wyBase + Math.sin(k.phase) * 14;
     if (overlap(k.wx, wy, 14, 12, player.wx, player.y, P_W, P_H)) {
       k.wyBase = wy;
-      handleEnemyHit(k, 750, 'koopa');
+      handleEnemyHit(k, 750);
       if (gameOver || happyDeath > 0) return;
     }
   }
   for (let i = koopas.length - 1; i >= 0; i--)
-    if (koopas[i].wx < player.wx - VW || koopas[i].deadTimer < -30) koopas.splice(i, 1);
+    if (koopas[i].wx < player.wx - VW * 2 || koopas[i].deadTimer < -30) koopas.splice(i, 1);
 
-  // parallax decor recycling
-  for (const cl of clouds) if (cl.wx - player.wx * 0.3 < -50) cl.wx = player.wx * 0.3 + VW + 30 + Math.random() * 40;
-  for (const tw of towers) if (tw.wx - player.wx * 0.6 < -60) { tw.wx = player.wx * 0.6 + VW + 40 + Math.random() * 80; tw.h = 70 + Math.floor(Math.random() * 50); }
-  for (const bd of buildings) if (bd.wx - player.wx * 0.8 < -40) { bd.wx = player.wx * 0.8 + VW + 30 + Math.random() * 60; bd.w = 24 + Math.floor(Math.random() * 14); bd.h = 28 + Math.floor(Math.random() * 28); }
-  for (const tr of trees) if (tr.wx - player.wx * 0.7 < -50) { tr.wx = player.wx * 0.7 + VW + 30 + Math.random() * 60; tr.h = 36 + Math.floor(Math.random() * 24); }
+  // camera follow (with deadzone bias right)
+  const targetCam = player.wx - VW * 0.4;
+  cameraX += (targetCam - cameraX) * 0.12;
+  if (cameraX < 0) cameraX = 0;
+
+  // parallax recycle ahead of camera
+  for (const cl of clouds) if (cl.wx - cameraX * 0.3 < -50) cl.wx = cameraX * 0.3 + VW + 30 + Math.random() * 40;
+  for (const tw of towers) if (tw.wx - cameraX * 0.6 < -60) { tw.wx = cameraX * 0.6 + VW + 40 + Math.random() * 80; tw.h = 70 + Math.floor(Math.random() * 50); }
+  for (const bd of buildings) if (bd.wx - cameraX * 0.8 < -40) { bd.wx = cameraX * 0.8 + VW + 30 + Math.random() * 60; bd.w = 24 + Math.floor(Math.random() * 14); bd.h = 28 + Math.floor(Math.random() * 28); }
+  for (const tr of trees) if (tr.wx - cameraX * 0.7 < -50) { tr.wx = cameraX * 0.7 + VW + 30 + Math.random() * 60; tr.h = 36 + Math.floor(Math.random() * 24); }
 }
 
 function overlap(ax, ay, aw, ah, bx, by, bw, bh) {
   return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
 }
 
-function handleEnemyHit(e, baseScore, kind) {
-  const fromAbove = player.vy > 1 && player.y + P_H - 6 < (e.wy !== undefined ? e.wy : e.wyBase);
+function handleEnemyHit(e, baseScore) {
+  const eY = e.wy !== undefined ? e.wy : e.wyBase;
+  const fromAbove = player.vy > 1 && player.y + P_H - 6 < eY;
   if (powerTime > 0 || fromAbove) {
     e.alive = false; e.deadTimer = 30;
-    bumpCombo(PLAYER_SCREEN_X, player.y);
+    bumpCombo(player.wx, player.y);
     const points = baseScore * Math.max(1, combo);
     score += points;
     sfx.stomp();
-    spawnShockwave(PLAYER_SCREEN_X + 6, player.y + P_H);
-    spawnConfetti(PLAYER_SCREEN_X + 6, player.y + P_H, 12, { up: 3, spread: 4 });
-    spawnFloater(PLAYER_SCREEN_X, player.y, '+' + points, SP.coin);
-    if (!powerTime) { player.vy = -5; player.djAvailable = true; }
+    spawnShockwave(player.wx + 6, player.y + P_H);
+    spawnConfetti(player.wx + 6, player.y + P_H, 12, { up: 3, spread: 4 });
+    spawnFloater(player.wx, player.y, '+' + points, SP.coin);
+    if (!powerTime && fromAbove) { player.vy = JUMP_V * 0.78; player.djAvailable = true; }
     shake = Math.min(5, shake + 2.5);
   } else {
     die();
@@ -521,19 +594,19 @@ function handleEnemyHit(e, baseScore, kind) {
 function die() {
   if (happyDeath > 0 || gameOver) return;
   happyDeath = 60;
-  deathPos = { x: PLAYER_SCREEN_X, y: player.y };
+  deathPos = { wx: player.wx, wy: player.y };
   sfx.die();
-  spawnConfetti(deathPos.x + 6, deathPos.y + 4, 36, { spread: 6, up: 5, life: 70 });
-  spawnShockwave(deathPos.x + 6, deathPos.y + 6);
+  spawnConfetti(deathPos.wx + 6, deathPos.wy + 4, 36, { spread: 6, up: 5, life: 70 });
+  spawnShockwave(deathPos.wx + 6, deathPos.wy + 6);
   shake = 5;
   if (distance > highScore) {
     highScore = distance;
-    try { localStorage.setItem('shroomRunHigh', String(highScore)); } catch(e){}
+    try { localStorage.setItem('shroomAdvHigh', String(highScore)); } catch(e){}
   }
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  DRAW
+//  DRAW (everything in world coords; subtract cameraX for screen)
 // ═══════════════════════════════════════════════════════════════
 function px(x, y, w, h, c) { ctx.fillStyle = c; ctx.fillRect(x|0, y|0, w, h); }
 
@@ -574,9 +647,6 @@ function drawTree(x, baseY, h, b) {
     const ry = baseY - h - 14 + i * 1.4;
     const rw = 14 - Math.abs(5 - i);
     px(x + 7 - rw/2, ry, rw, 2, b.stone);
-  }
-  for (let i = 0; i < 3; i++) {
-    px(x + 2 + Math.floor(Math.random()*9), baseY - h - 8 + Math.floor(Math.random()*10), 2, 2, b.accent);
   }
 }
 function drawGround(x, y) {
@@ -626,6 +696,7 @@ function drawTurtle(t, camX) {
   }
   const x = (t.wx - camX) | 0, y = t.wy | 0;
   const wob = Math.sin(t.wobble) * 1;
+  const facing = t.vx >= 0 ? 1 : -1;
   px(x+1, y+12, 3, 2, SP.bodyO); px(x+8, y+12, 3, 2, SP.bodyO);
   px(x+2, y+8, 8, 4, SP.bodyY);
   px(x+1, y+3+wob, 10, 8, SP.shellG);
@@ -633,8 +704,9 @@ function drawTurtle(t, camX) {
   px(x+1, y+9+wob, 10, 1, SP.shellD);
   px(x+3, y+5+wob, 2, 2, SP.shellD);
   px(x+7, y+6+wob, 2, 2, SP.shellD);
-  px(x-2, y+5+wob, 4, 4, SP.bodyY);
-  px(x-1, y+6+wob, 1, 2, SP.black);
+  const hx = facing > 0 ? x + 8 : x - 2;
+  px(hx, y+5+wob, 4, 4, SP.bodyY);
+  px(hx + (facing > 0 ? 2 : 1), y+6+wob, 1, 2, SP.black);
 }
 function drawKoopa(k, camX) {
   if (!k.alive) {
@@ -644,26 +716,21 @@ function drawKoopa(k, camX) {
   }
   const x = (k.wx - camX) | 0;
   const y = (k.wyBase + Math.sin(k.phase) * 14) | 0;
-  // wings flap
   const wf = Math.floor(k.wing) % 2 === 0;
   px(x - 3, y + 3 + (wf ? 0 : -2), 4, 4, SP.wingW);
   px(x + 13, y + 3 + (wf ? 0 : -2), 4, 4, SP.wingW);
   px(x - 3, y + 3 + (wf ? 0 : -2), 4, 1, SP.wingO);
   px(x + 13, y + 3 + (wf ? 0 : -2), 4, 1, SP.wingO);
-  // body
   px(x + 2, y + 8, 10, 4, SP.bodyY);
-  // shell (red for variety)
   px(x + 1, y + 3, 12, 8, SP.spikeR);
   px(x + 1, y + 3, 12, 2, '#FC6868');
   px(x + 1, y + 9, 12, 1, SP.spikeD);
   px(x + 4, y + 5, 2, 2, SP.spikeD);
   px(x + 8, y + 5, 2, 2, SP.spikeD);
-  // head
   px(x + 12, y + 5, 4, 4, SP.bodyY);
   px(x + 14, y + 6, 1, 2, SP.black);
 }
-function drawHero(x, y, anim, airborne, happy, sq) {
-  // squash on landing
+function drawHero(x, y, anim, airborne, happy, sq, facing) {
   const yOff = sq > 0 ? sq * 2 : 0;
   const legFrame = airborne ? 2 : (Math.floor(anim) % 2);
   if (legFrame === 0)      { px(x+1, y+12+yOff, 4, 2, SP.shoe); px(x+7, y+12+yOff, 4, 2, SP.shoe); }
@@ -687,62 +754,63 @@ function drawHero(x, y, anim, airborne, happy, sq) {
     px(x+4, y+5, 4, 1, SP.hatR);
     px(x-1, y+2, 2, 4, shirtCol); px(x+11, y+2, 2, 4, shirtCol);
   } else {
-    px(x+7, y+3, 1, 2, SP.black);
-    px(x+2, y+3, 1, 2, SP.hair);
+    // eye position based on facing
+    const eyeX = facing >= 0 ? x + 7 : x + 3;
+    const hairX = facing >= 0 ? x + 2 : x + 8;
+    px(eyeX, y+3, 1, 2, SP.black);
+    px(hairX, y+3, 1, 2, SP.hair);
   }
   px(x+1, y, 10, 2, hatCol);
-  px(x+1, y+2, 3, 1, hatCol);
-  px(x+8, y+2, 3, 1, hatCol);
+  if (facing >= 0) {
+    px(x+1, y+2, 3, 1, hatCol);
+    px(x+8, y+2, 3, 1, hatCol);
+  } else {
+    px(x+8, y+2, 3, 1, hatCol);
+    px(x+1, y+2, 3, 1, hatCol);
+  }
   px(x+2, y, 2, 1, SP.coinH);
 }
 
-function drawBackground(camX) {
+function drawBackground() {
   const b = biome();
-  // sky
   ctx.fillStyle = b.sky;
   ctx.fillRect(0, 0, VW, GROUND_ROW * TILE);
-  // biome flash on change
   const flash = biomeTransition();
   if (flash > 0) {
-    ctx.fillStyle = `rgba(255,255,255,${flash * 0.8})`;
+    ctx.fillStyle = `rgba(255,255,255,${flash * 0.7})`;
     ctx.fillRect(0, 0, VW, VH);
   }
-  // clouds
   for (const cl of clouds) {
-    const sx = cl.wx - player.wx * 0.3;
+    const sx = cl.wx - cameraX * 0.3;
     if (sx > -30 && sx < VW + 30) drawCloud(sx, cl.y, b);
   }
-  // distant mountains
   ctx.fillStyle = b.mountain;
   ctx.beginPath(); ctx.moveTo(0, GROUND_ROW * TILE);
   for (let x = 0; x <= VW; x += 8) {
-    const wx = x + player.wx * 0.4;
+    const wx = x + cameraX * 0.4;
     const h = 38 + Math.sin(wx * 0.05) * 14 + Math.cos(wx * 0.03) * 10;
     ctx.lineTo(x, GROUND_ROW * TILE - h);
   }
   ctx.lineTo(VW, GROUND_ROW * TILE); ctx.closePath(); ctx.fill();
-  // fortress wall + battlements (skip in forest, brown brick in lava is just stone)
   const wallTop = 110;
   drawWall(0, wallTop, VW, GROUND_ROW * TILE - wallTop, b);
-  for (let i = -((player.wx * 0.7) | 0) % 16; i < VW; i += 16) {
+  for (let i = -((cameraX * 0.7) | 0) % 16; i < VW; i += 16) {
     px(i, wallTop - 6, 8, 6, b.stone);
     px(i, wallTop - 6, 8, 1, b.stoneH);
   }
-  // mid-ground: towers OR trees depending on biome
   if (b.decorTrees) {
     for (const tr of trees) {
-      const sx = tr.wx - player.wx * 0.7;
+      const sx = tr.wx - cameraX * 0.7;
       if (sx > -40 && sx < VW + 30) drawTree(sx, GROUND_ROW * TILE, tr.h, b);
     }
   } else {
     for (const tw of towers) {
-      const sx = tw.wx - player.wx * 0.6;
+      const sx = tw.wx - cameraX * 0.6;
       if (sx > -40 && sx < VW + 30) drawTower(sx, GROUND_ROW * TILE, tw.h, b);
     }
   }
-  // near-ground: buildings (everywhere)
   for (const bd of buildings) {
-    const sx = bd.wx - player.wx * 0.8;
+    const sx = bd.wx - cameraX * 0.8;
     if (sx > -40 && sx < VW + 30) drawBuilding(sx, GROUND_ROW * TILE, bd.w, bd.h, b);
   }
 }
@@ -772,30 +840,31 @@ function drawShockwaves(camX) {
     const a = sw.life / sw.maxLife;
     ctx.strokeStyle = `rgba(255,255,255,${a})`;
     ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(sw.x, sw.y, sw.r, 0, Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(sw.wx - camX, sw.wy, sw.r, 0, Math.PI*2); ctx.stroke();
     ctx.lineWidth = 1;
   }
 }
 
-function drawParticles() {
+function drawParticles(camX) {
   for (const pt of particles) {
     ctx.globalAlpha = Math.min(1, pt.life / 12);
-    px(pt.x|0, pt.y|0, pt.size, pt.size, pt.color);
+    px((pt.wx - camX) | 0, pt.wy | 0, pt.size, pt.size, pt.color);
   }
   ctx.globalAlpha = 1;
 }
 
-function drawFloaters() {
+function drawFloaters(camX) {
   ctx.save();
   ctx.font = 'bold 10px "Courier New", monospace';
   ctx.textAlign = 'center';
   for (const f of floaters) {
     const a = Math.min(1, f.life / 12);
     ctx.globalAlpha = a;
+    const sx = f.wx - camX;
     ctx.fillStyle = SP.black;
-    ctx.fillText(f.text, (f.x + 1)|0, (f.y + 1)|0);
+    ctx.fillText(f.text, (sx + 1)|0, (f.wy + 1)|0);
     ctx.fillStyle = f.color;
-    ctx.fillText(f.text, f.x|0, f.y|0);
+    ctx.fillText(f.text, sx|0, f.wy|0);
   }
   ctx.globalAlpha = 1;
   ctx.restore();
@@ -812,9 +881,8 @@ function drawHUD() {
   ctx.fillText(biome().name, 222, 11);
   if (powerTime > 0) {
     ctx.fillStyle = `hsl(${(tick * 12) % 360}, 100%, 60%)`;
-    ctx.fillRect(0, 14, (powerTime / 240) * VW, 2);
+    ctx.fillRect(0, 14, (powerTime / 360) * VW, 2);
   }
-  // combo HUD
   if (combo >= 2) {
     const a = Math.min(1, comboTimer / 20);
     ctx.globalAlpha = a;
@@ -823,7 +891,6 @@ function drawHUD() {
     ctx.textAlign = 'right';
     ctx.fillText('x' + combo + ' COMBO!', VW - 4, 30);
     ctx.font = '8px "Courier New", monospace';
-    // combo bar
     ctx.fillStyle = SP.coin;
     ctx.fillRect(VW - 80, 33, (comboTimer / 90) * 76, 2);
     ctx.globalAlpha = 1;
@@ -838,31 +905,29 @@ function drawTitle() {
   ctx.fillStyle = SP.hatR;
   ctx.fillRect(28, 50, VW - 56, 26);
   ctx.fillStyle = SP.white;
-  ctx.font = 'bold 20px "Courier New", monospace';
+  ctx.font = 'bold 18px "Courier New", monospace';
   ctx.textAlign = 'center';
-  ctx.fillText('SHROOM RUN', VW/2, 70);
-  ctx.font = '8px "Courier New", monospace';
-  ctx.fillText('MASSIVE EDITION', VW/2, 84);
+  ctx.fillText('SHROOM ADVENTURE', VW/2, 70);
   ctx.font = '10px "Courier New", monospace';
-  ctx.fillText('CLICK · TAP · SPACE', VW/2, 110);
-  ctx.fillText('TAP IN AIR = DOUBLE JUMP', VW/2, 128);
-  ctx.fillText('STOMP TO COMBO · MUSH = POWER', VW/2, 146);
-  ctx.fillText('FORTRESS  ·  FOREST  ·  LAVA', VW/2, 164);
+  ctx.fillText('←   →   MOVE', VW/2, 108);
+  ctx.fillText('↑  /  SPACE  =  JUMP', VW/2, 126);
+  ctx.fillText('TAP IN AIR  =  DOUBLE JUMP', VW/2, 144);
+  ctx.fillText('STOMP TURTLES · GRAB SHROOMS', VW/2, 162);
   ctx.fillStyle = (tick >> 4) % 2 ? SP.coin : SP.white;
-  ctx.fillText('▶ PRESS ANYTHING TO START ◀', VW/2, 196);
+  ctx.fillText('▶ PRESS ANY KEY TO BEGIN ◀', VW/2, 196);
   ctx.textAlign = 'start';
 }
 
-function drawHappyDeath() {
+function drawHappyDeath(camX) {
   if (!deathPos) return;
   const elapsed = 60 - happyDeath;
-  const y = deathPos.y - elapsed * 1.2;
-  const x = deathPos.x;
+  const sx = deathPos.wx - camX;
+  const y = deathPos.wy - elapsed * 1.2;
   ctx.save();
-  ctx.translate(x + 5, y + 7);
+  ctx.translate(sx + 5, y + 7);
   ctx.rotate(Math.sin(elapsed * 0.35) * 0.4);
   ctx.translate(-5, -7);
-  drawHero(0, 0, 0, true, true, 0);
+  drawHero(0, 0, 0, true, true, 0, 1);
   ctx.restore();
   if (elapsed > 8) {
     ctx.font = 'bold 12px "Courier New", monospace';
@@ -870,7 +935,7 @@ function drawHappyDeath() {
     const bounce = Math.sin(elapsed * 0.4) * 3;
     ctx.fillStyle = `hsl(${(elapsed * 12) % 360},100%,65%)`;
     ctx.shadowColor = SP.black; ctx.shadowBlur = 4;
-    ctx.fillText('WHEEEE!', x + 5, y - 6 + bounce);
+    ctx.fillText('WHEEEE!', sx + 5, y - 6 + bounce);
     ctx.shadowBlur = 0;
     ctx.textAlign = 'start';
   }
@@ -897,53 +962,40 @@ function drawGameOver() {
   ctx.fillText('HI SCORE  ' + highScore, VW/2, 144);
   if (deathTimer > 36) {
     ctx.fillStyle = (tick >> 4) % 2 ? SP.coin : SP.white;
-    ctx.fillText('▶ CLICK TO PLAY AGAIN ◀', VW/2, 172);
+    ctx.fillText('▶ PRESS ANY KEY TO RETRY ◀', VW/2, 172);
   }
   ctx.textAlign = 'start';
 }
 
-function drawTrail() {
+function drawTrail(camX) {
   for (let i = 0; i < trail.length; i++) {
     const t = trail[i];
     const a = (1 - i / trail.length) * 0.4;
     ctx.globalAlpha = a;
-    drawHero(t.x, t.y, t.anim, true, false, 0);
+    drawHero(t.wx - camX, t.y, t.anim, true, false, 0, t.facing);
   }
   ctx.globalAlpha = 1;
 }
 
-function drawSpeedLines() {
-  if (scrollSpeed < 2.4) return;
-  ctx.fillStyle = 'rgba(255,255,255,0.18)';
-  const n = 5;
-  for (let i = 0; i < n; i++) {
-    const y = 30 + (i * 40 + (tick * 6 % 40));
-    ctx.fillRect(0, y, 20, 1);
-    ctx.fillRect(VW - 20, y + 14, 20, 1);
-  }
-}
-
 function frame() {
   update();
-  const camX = player.wx - PLAYER_SCREEN_X;
-  // screen shake
+  const camX = cameraX;
   const sx = (Math.random() - 0.5) * shake;
   const sy = (Math.random() - 0.5) * shake;
   ctx.save(); ctx.translate(sx, sy);
 
-  drawBackground(camX);
-  drawSpeedLines();
+  drawBackground();
   drawTiles(camX);
   for (const t of turtles) drawTurtle(t, camX);
   for (const k of koopas) drawKoopa(k, camX);
   if (happyDeath <= 0 && !gameOver) {
-    drawTrail();
-    drawHero(PLAYER_SCREEN_X, player.y, player.anim, !player.onGround, false, player.sq);
+    drawTrail(camX);
+    drawHero(player.wx - camX, player.y, player.anim, !player.onGround, false, player.sq, player.facing);
   }
   drawShockwaves(camX);
-  drawParticles();
-  drawFloaters();
-  if (happyDeath > 0) drawHappyDeath();
+  drawParticles(camX);
+  drawFloaters(camX);
+  if (happyDeath > 0) drawHappyDeath(camX);
 
   ctx.restore();
 
