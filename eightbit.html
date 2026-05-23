@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>8-BIT ATTRACT DEMO</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    font-family: "Courier New", monospace; color: #fff; }
+  #c { image-rendering: pixelated; image-rendering: crisp-edges;
+    box-shadow: 0 0 0 4px #222, 0 0 24px #000; }
+  #cap { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+    font-size: 11px; letter-spacing: 3px; opacity: 0.6; }
+</style>
+</head>
+<body>
+<canvas id="c" width="256" height="240"></canvas>
+<div id="cap">★ 8-BIT ATTRACT MODE — AUTO PLAY ★</div>
+<script>
+(() => {
+'use strict';
+
+// ── NES-ish palette (real NES PPU colors) ──
+const P = {
+  sky:    '#5C94FC',
+  cloud:  '#FCFCFC',
+  cloudO: '#0058F8',
+  bush:   '#00A800',
+  bushO:  '#005800',
+  bushH:  '#80D010',
+  gTop:   '#E45C10',
+  gBody:  '#A04000',
+  gDot:   '#FCBCB0',
+  brick:  '#B53120',
+  brickO: '#000000',
+  qBlock: '#FCD800',
+  qBlockO:'#A04000',
+  pipe:   '#00A800',
+  pipeS:  '#005800',
+  pipeH:  '#80D010',
+  hatR:   '#D82800',
+  shirtR: '#D82800',
+  pants:  '#0058F8',
+  skin:   '#FCBCB0',
+  hair:   '#6C4400',
+  shoe:   '#6C4400',
+  black:  '#000000',
+  white:  '#FCFCFC',
+};
+
+const VW = 256, VH = 240, TILE = 16;
+const cnv = document.getElementById('c');
+const ctx = cnv.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+
+// scale up via CSS to fit viewport (integer multiples)
+function fit() {
+  const ratio = VW / VH;
+  const wr = innerWidth / innerHeight;
+  let s = wr > ratio ? Math.floor(innerHeight / VH) : Math.floor(innerWidth / VW);
+  s = Math.max(1, s);
+  cnv.style.width = (VW * s) + 'px';
+  cnv.style.height = (VH * s) + 'px';
+}
+fit(); addEventListener('resize', fit);
+
+// ── Level: 64 tiles wide, 15 tall ──
+//   . sky    G ground    B brick    ? q-block    P pipe-top   p pipe-body
+const LVL = [
+  "................................................................",
+  "................................................................",
+  "................................................................",
+  "................................................................",
+  "................................................................",
+  "................................................................",
+  "..........B?B?B........................BBBB....................",
+  "................................................................",
+  "........................??............................?........",
+  "...................P.......................P...................",
+  "...................p.......................p...................",
+  "GGGGGGGGGGGGGGGGGGGpGGGGGGGGGGG..GGGGGGGGGGGGpGGGGG..GGGGGGGGGGG",
+  "GGGGGGGGGGGGGGGGGGGpGGGGGGGGGGG..GGGGGGGGGGGGpGGGGG..GGGGGGGGGGG",
+  "GGGGGGGGGGGGGGGGGGGpGGGGGGGGGGG..GGGGGGGGGGGGpGGGGG..GGGGGGGGGGG",
+  "GGGGGGGGGGGGGGGGGGGpGGGGGGGGGGG..GGGGGGGGGGGGpGGGGG..GGGGGGGGGGG",
+];
+const LW = LVL[0].length, LH = LVL.length;
+const WW = LW * TILE;
+
+function solidAt(tx, ty) {
+  if (tx < 0 || tx >= LW || ty < 0 || ty >= LH) return false;
+  const c = LVL[ty][tx];
+  return c === 'G' || c === 'B' || c === '?' || c === 'P' || c === 'p';
+}
+
+// ── Background clouds + bushes (parallax) ──
+const clouds = [
+  { x: 30, y: 32 }, { x: 110, y: 50 }, { x: 200, y: 28 },
+  { x: 330, y: 44 }, { x: 460, y: 36 }, { x: 580, y: 52 }, { x: 720, y: 30 },
+  { x: 860, y: 48 }, { x: 980, y: 34 },
+];
+const bushes = [
+  { x: 70, y: 11*TILE }, { x: 180, y: 11*TILE }, { x: 360, y: 11*TILE },
+  { x: 500, y: 11*TILE }, { x: 700, y: 11*TILE }, { x: 860, y: 11*TILE },
+];
+
+// ── Player (auto-runner) ──
+const P_W = 12, P_H = 14;
+let player = { x: 16, y: 11*TILE - P_H, vx: 1.5, vy: 0, onGround: false, anim: 0, jumpHold: 0 };
+let camX = 0;
+let tick = 0;
+
+function reset() {
+  player.x = 16; player.y = 11*TILE - P_H; player.vx = 1.5; player.vy = 0;
+  player.onGround = false; player.anim = 0; player.jumpHold = 0;
+  camX = 0;
+}
+
+// ── AI: jump when obstacle ahead or pit ahead ──
+function decideJump() {
+  if (!player.onGround) return false;
+  const feetY = player.y + P_H;
+  // obstacle directly in front (any tile at chest height)?
+  const obsTx = Math.floor((player.x + P_W + 6) / TILE);
+  const obsTy = Math.floor((feetY - 2) / TILE);
+  if (solidAt(obsTx, obsTy)) return true;
+  // pit ahead — only counts if THREE rows are empty (so stepping off a pipe doesn't trigger)
+  const pitTx = Math.floor((player.x + P_W + 14) / TILE);
+  const footRow = Math.floor((feetY + 1) / TILE);
+  if (!solidAt(pitTx, footRow) && !solidAt(pitTx, footRow + 1) && !solidAt(pitTx, footRow + 2)) {
+    return true;
+  }
+  return false;
+}
+
+function step() {
+  tick++;
+
+  // auto-jump?
+  if (decideJump()) {
+    player.vy = -6.2;
+    player.onGround = false;
+    player.jumpHold = 14;
+  }
+  if (player.jumpHold > 0 && player.vy < 0) { player.jumpHold--; }
+  else if (player.vy < -2 && player.jumpHold === 0) { player.vy = -2; }
+
+  // gravity
+  player.vy += 0.32;
+  if (player.vy > 6) player.vy = 6;
+
+  // X move + collide
+  player.x += player.vx;
+  let xL = Math.floor(player.x / TILE);
+  let xR = Math.floor((player.x + P_W - 1) / TILE);
+  let yT = Math.floor(player.y / TILE);
+  let yB = Math.floor((player.y + P_H - 1) / TILE);
+  for (let ty = yT; ty <= yB; ty++) {
+    if (solidAt(xR, ty)) { player.x = xR * TILE - P_W; break; }
+  }
+
+  // Y move + collide
+  player.y += player.vy;
+  xL = Math.floor(player.x / TILE);
+  xR = Math.floor((player.x + P_W - 1) / TILE);
+  yT = Math.floor(player.y / TILE);
+  yB = Math.floor((player.y + P_H - 1) / TILE);
+  player.onGround = false;
+  if (player.vy > 0) {
+    for (let tx = xL; tx <= xR; tx++) {
+      if (solidAt(tx, yB)) {
+        player.y = yB * TILE - P_H;
+        player.vy = 0;
+        player.onGround = true;
+        player.jumpHold = 0;
+        break;
+      }
+    }
+  } else if (player.vy < 0) {
+    for (let tx = xL; tx <= xR; tx++) {
+      if (solidAt(tx, yT)) { player.y = (yT + 1) * TILE; player.vy = 0.5; break; }
+    }
+  }
+
+  // animate
+  if (player.onGround) player.anim += Math.abs(player.vx) * 0.18;
+
+  // fell into pit? reset.
+  if (player.y > VH + 30) reset();
+
+  // reached end? loop.
+  if (player.x > WW - 32) reset();
+
+  // camera follows
+  const target = Math.max(0, Math.min(WW - VW, player.x + P_W/2 - VW/2));
+  camX += (target - camX) * 0.18;
+}
+
+// ── DRAW ──
+function px(x, y, w, h, color) { ctx.fillStyle = color; ctx.fillRect(x|0, y|0, w, h); }
+
+function drawCloud(x, y) {
+  // body
+  px(x+4, y+2, 16, 4, P.cloud);
+  px(x+2, y+4, 20, 4, P.cloud);
+  px(x,   y+6, 24, 4, P.cloud);
+  // outline (NES-ish dark blue underline)
+  px(x,   y+10, 24, 2, P.cloudO);
+  px(x+4, y, 16, 2, P.cloudO);
+}
+
+function drawBush(x, y) {
+  // 3-bump
+  px(x,    y-4, 24, 4, P.bush);
+  px(x+4,  y-8, 4,  4, P.bush);
+  px(x+16, y-8, 4,  4, P.bush);
+  px(x+10, y-12, 4, 4, P.bush);
+  // highlight
+  px(x+2,  y-4, 2, 2, P.bushH);
+  px(x+12, y-8, 2, 2, P.bushH);
+  // outline
+  px(x, y, 24, 2, P.bushO);
+}
+
+function drawGround(x, y) {
+  px(x, y, 16, 16, P.gBody);
+  px(x, y, 16, 2,  P.gTop);
+  px(x, y+2, 16, 2, P.gTop);
+  // brick-ish dot pattern
+  px(x+3,  y+6,  2, 2, P.gDot);
+  px(x+11, y+8,  2, 2, P.gDot);
+  px(x+5,  y+12, 2, 2, P.gDot);
+  // black grid lines (very NES)
+  px(x, y, 1, 16, P.brickO);
+  px(x, y+15, 16, 1, P.brickO);
+}
+
+function drawBrick(x, y) {
+  px(x, y, 16, 16, P.brick);
+  // mortar lines
+  px(x, y, 16, 1, P.brickO);
+  px(x, y+15, 16, 1, P.brickO);
+  px(x, y+7, 16, 1, P.brickO);
+  px(x+7, y, 1, 7, P.brickO);
+  px(x+3, y+8, 1, 7, P.brickO);
+  px(x+11, y+8, 1, 7, P.brickO);
+  // tiny highlights
+  px(x+1, y+1, 2, 1, '#FC9838');
+  px(x+9, y+1, 2, 1, '#FC9838');
+}
+
+function drawQBlock(x, y) {
+  // animated flicker: yellow ↔ orange-ish
+  const c = (tick >> 4) % 2 === 0 ? P.qBlock : '#FC9838';
+  px(x, y, 16, 16, c);
+  px(x, y, 16, 1, P.brickO);
+  px(x, y+15, 16, 1, P.brickO);
+  px(x, y, 1, 16, P.brickO);
+  px(x+15, y, 1, 16, P.brickO);
+  // "?" mark
+  px(x+6, y+3, 4, 2, P.brickO);
+  px(x+10, y+5, 2, 3, P.brickO);
+  px(x+7, y+8, 2, 2, P.brickO);
+  px(x+7, y+11, 2, 2, P.brickO);
+}
+
+function drawPipeTop(x, y) {
+  px(x-2, y, 20, 8, P.pipe);
+  px(x, y+8, 16, 8, P.pipe);
+  // shading
+  px(x-2, y, 20, 2, P.pipeH);
+  px(x-2, y+6, 20, 2, P.pipeS);
+  px(x+13, y+8, 3, 8, P.pipeS);
+  // outlines
+  px(x-2, y, 1, 8, P.brickO);
+  px(x+17, y, 1, 8, P.brickO);
+  px(x, y+8, 1, 8, P.brickO);
+  px(x+15, y+8, 1, 8, P.brickO);
+}
+
+function drawPipeBody(x, y) {
+  px(x, y, 16, 16, P.pipe);
+  px(x, y, 3, 16, P.pipeH);
+  px(x+13, y, 3, 16, P.pipeS);
+  px(x, y, 1, 16, P.brickO);
+  px(x+15, y, 1, 16, P.brickO);
+}
+
+function drawTiles() {
+  const startX = Math.max(0, Math.floor(camX / TILE) - 1);
+  const endX = Math.min(LW - 1, Math.ceil((camX + VW) / TILE) + 1);
+  for (let y = 0; y < LH; y++) {
+    for (let x = startX; x <= endX; x++) {
+      const c = LVL[y][x];
+      if (c === '.') continue;
+      const sx = x * TILE - camX, sy = y * TILE;
+      if (c === 'G') drawGround(sx, sy);
+      else if (c === 'B') drawBrick(sx, sy);
+      else if (c === '?') drawQBlock(sx, sy);
+      else if (c === 'P') drawPipeTop(sx, sy);
+      else if (c === 'p') drawPipeBody(sx, sy);
+    }
+  }
+}
+
+function drawPlayer() {
+  const x = (player.x - camX) | 0;
+  const y = player.y | 0;
+  const airborne = !player.onGround;
+  const legFrame = airborne ? 2 : (Math.floor(player.anim) % 2);
+  // shoes
+  if (legFrame === 0) {
+    px(x+1, y+12, 4, 2, P.shoe);
+    px(x+7, y+12, 4, 2, P.shoe);
+  } else if (legFrame === 1) {
+    px(x+1, y+11, 3, 3, P.shoe);
+    px(x+8, y+12, 4, 2, P.shoe);
+  } else {
+    // jump: both legs tucked
+    px(x+2, y+11, 3, 2, P.shoe);
+    px(x+7, y+11, 3, 2, P.shoe);
+  }
+  // overalls / pants
+  px(x+1, y+8,  10, 4, P.pants);
+  px(x+5, y+6,  2,  2, P.pants); // strap divider
+  // shirt
+  px(x+1, y+5,  10, 4, P.shirtR);
+  // arms
+  px(x,   y+6,  2,  4, P.shirtR);
+  px(x+10,y+6,  2,  4, P.shirtR);
+  // hands
+  px(x,   y+9,  2,  2, P.skin);
+  px(x+10,y+9,  2,  2, P.skin);
+  // face
+  px(x+2, y+2,  8,  4, P.skin);
+  // mustache
+  px(x+3, y+4,  6,  1, P.hair);
+  // eye
+  px(x+7, y+3,  1,  2, P.black);
+  // hair (sideburn)
+  px(x+2, y+3,  1,  2, P.hair);
+  // hat (cap + brim)
+  px(x+1, y,    10, 2, P.hatR);
+  px(x+1, y+2,  3,  1, P.hatR);
+  px(x+8, y+2,  3,  1, P.hatR);
+  // hat shine
+  px(x+2, y, 2, 1, '#FC9838');
+}
+
+function drawBg() {
+  // sky
+  ctx.fillStyle = P.sky;
+  ctx.fillRect(0, 0, VW, VH);
+  // clouds — slow parallax
+  for (const cl of clouds) {
+    const sx = cl.x - camX * 0.3;
+    if (sx > -30 && sx < VW + 30) drawCloud(sx, cl.y);
+  }
+  // bushes — closer parallax
+  for (const b of bushes) {
+    const sx = b.x - camX * 0.85;
+    if (sx > -30 && sx < VW + 30) drawBush(sx, b.y);
+  }
+}
+
+function drawHUD() {
+  // top status bar — classic SMB look
+  ctx.fillStyle = P.black;
+  ctx.fillRect(0, 0, VW, 16);
+  ctx.fillStyle = P.white;
+  ctx.font = '8px "Courier New", monospace';
+  ctx.fillText('CLAUDE  x00', 12, 11);
+  ctx.fillText('WORLD 1-1',   110, 11);
+  ctx.fillText('TIME 999',    200, 11);
+}
+
+function frame() {
+  step();
+  drawBg();
+  drawTiles();
+  drawPlayer();
+  drawHUD();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

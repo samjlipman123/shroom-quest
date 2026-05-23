@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SHROOM QUEST — Claude's Mario Demos</title>
+<style>
+  :root {
+    --neon-pink: #ff2bd6;
+    --neon-cyan: #00fff7;
+    --neon-yellow: #fff200;
+  }
+  html, body {
+    margin: 0; padding: 0;
+    min-height: 100vh;
+    background: #050010;
+    color: #fff;
+    font-family: "Courier New", monospace;
+    overflow-x: hidden;
+  }
+  body {
+    background:
+      radial-gradient(ellipse at 20% 30%, #4a006b 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 70%, #002b6b 0%, transparent 55%),
+      radial-gradient(ellipse at 50% 100%, #6b0040 0%, transparent 60%),
+      #050010;
+    background-size: 100% 100%;
+    animation: bgshift 20s ease-in-out infinite alternate;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    box-sizing: border-box;
+  }
+  @keyframes bgshift {
+    0%   { filter: hue-rotate(0deg); }
+    100% { filter: hue-rotate(360deg); }
+  }
+  h1 {
+    font-size: clamp(28px, 6vw, 56px);
+    letter-spacing: 6px;
+    margin: 0 0 8px;
+    text-shadow:
+      0 0 12px var(--neon-pink),
+      0 0 24px var(--neon-cyan),
+      4px 4px 0 #000;
+    animation: pulse 2.4s ease-in-out infinite;
+    text-align: center;
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.03); }
+  }
+  .sub {
+    font-size: 14px;
+    letter-spacing: 4px;
+    opacity: 0.8;
+    margin-bottom: 56px;
+    text-align: center;
+  }
+  .cards {
+    display: flex;
+    gap: 32px;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 1000px;
+  }
+  .card {
+    width: 340px;
+    background: rgba(0,0,0,0.55);
+    border: 2px solid var(--neon-cyan);
+    border-radius: 12px;
+    padding: 28px;
+    text-align: center;
+    text-decoration: none;
+    color: inherit;
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+    backdrop-filter: blur(4px);
+  }
+  .card:hover {
+    transform: translateY(-6px) scale(1.02);
+    border-color: var(--neon-pink);
+    box-shadow: 0 0 24px var(--neon-pink), 0 0 48px var(--neon-cyan);
+  }
+  .card h2 {
+    margin: 0 0 12px;
+    font-size: 22px;
+    letter-spacing: 3px;
+    text-shadow: 0 0 8px var(--neon-pink), 2px 2px 0 #000;
+  }
+  .card .icon {
+    font-size: 48px;
+    margin-bottom: 12px;
+    filter: drop-shadow(0 0 8px var(--neon-cyan));
+  }
+  .card p {
+    font-size: 13px;
+    line-height: 1.6;
+    opacity: 0.85;
+    margin: 0 0 16px;
+  }
+  .card .play {
+    display: inline-block;
+    padding: 10px 22px;
+    border: 2px solid var(--neon-yellow);
+    border-radius: 6px;
+    font-weight: bold;
+    letter-spacing: 3px;
+    color: var(--neon-yellow);
+    text-shadow: 0 0 6px var(--neon-yellow);
+  }
+  .footer {
+    margin-top: 56px;
+    font-size: 11px;
+    letter-spacing: 2px;
+    opacity: 0.5;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+  <h1>✦ SHROOM QUEST ✦</h1>
+  <div class="sub">TWO TRIPS, ONE MUSHROOM</div>
+  <div class="cards">
+    <a class="card" href="trippy.html">
+      <div class="icon">🍄</div>
+      <h2>16-BIT TRIP</h2>
+      <p>A psychedelic SNES-style platformer.<br>Hue-cycling skies, lava-lamp clouds, parallax mountains, particle trails, kaleidoscope finale.<br><br><b>Playable.</b> Keys + jump + star power-up.</p>
+      <span class="play">▶ PLAY</span>
+    </a>
+    <a class="card" href="eightbit.html">
+      <div class="icon">👾</div>
+      <h2>8-BIT ATTRACT</h2>
+      <p>A NES-palette auto-runner demo.<br>Pure RGB pixel art — sky blue, brick red, pipe green. Hops pits, clears pipes, loops forever.<br><br><b>Watch-only.</b> Sit back & enjoy.</p>
+      <span class="play">▶ WATCH</span>
+    </a>
+  </div>
+  <div class="footer">MADE WITH CLAUDE · CANVAS 2D · NO ASSETS · NO FRAMEWORKS</div>
+</body>
+</html>
