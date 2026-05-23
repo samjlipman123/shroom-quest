@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SHROOM CITY — 8-Bit Cinematic</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    font-family: "Courier New", monospace; color: #fff; }
+  #c { image-rendering: pixelated; image-rendering: crisp-edges;
+    box-shadow: 0 0 0 4px #222, 0 0 24px #000; }
+  #cap { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+    font-size: 11px; letter-spacing: 3px; opacity: 0.6; }
+</style>
+</head>
+<body>
+<canvas id="c" width="256" height="240"></canvas>
+<div id="cap">★ SHROOM CITY — AUTO PLAY · 30 SEC LOOP ★</div>
+<script>
+(() => {
+'use strict';
+
+// ── NES palette ──
+const P = {
+  sky:'#5C94FC', cloud:'#FCFCFC', cloudO:'#0058F8',
+  stone:'#8898A0', stoneD:'#404858', stoneH:'#B8C0C8',
+  roof:'#8000B0', roofD:'#380058',
+  flag:'#D82800', flagPole:'#FCBCB0',
+  window:'#FCD800', windowO:'#A04000',
+  door:'#380058',
+  groundT:'#A04000', groundB:'#6C4400', groundD:'#FCBCB0',
+  hatR:'#D82800', shirtR:'#D82800', pants:'#0058F8',
+  skin:'#FCBCB0', hair:'#6C4400', shoe:'#6C4400',
+  shellG:'#00A800', shellD:'#005800', shellH:'#80D010',
+  bodyY:'#FCD800', bodyO:'#A04000',
+  mushW:'#FCFCFC', mushR:'#D82800', mushS:'#FCBCB0',
+  spark:'#FCD800',
+  black:'#000000', white:'#FCFCFC',
+};
+
+const VW = 256, VH = 240;
+const cnv = document.getElementById('c');
+const ctx = cnv.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+
+function fit() {
+  const ratio = VW / VH, wr = innerWidth / innerHeight;
+  let s = wr > ratio ? Math.floor(innerHeight / VH) : Math.floor(innerWidth / VW);
+  s = Math.max(1, s);
+  cnv.style.width = (VW * s) + 'px';
+  cnv.style.height = (VH * s) + 'px';
+}
+fit(); addEventListener('resize', fit);
+
+// ═══════════════════════════════════════════════════════════════
+//  WORLD
+// ═══════════════════════════════════════════════════════════════
+const GROUND_Y = 200;   // top of plaza floor
+const CYCLE = 1800;     // 30 seconds @ 60fps
+let tick = 0;
+
+// Static decor: clouds
+const clouds = [
+  { x: 30, y: 24 }, { x: 130, y: 14 }, { x: 220, y: 32 },
+];
+
+// ── Characters ──
+// hero: cameo, runs through once per cycle
+// turtles: 5 of them, waddling around plaza
+// toads: 3 of them, enter from right
+// each turtle has a `mushroomy` flag — set after toad delivers mushroom
+const turtles = [];
+const toads = [];
+const sparkles = [];
+let hero = null;
+
+function reset() {
+  turtles.length = 0;
+  for (let i = 0; i < 5; i++) {
+    turtles.push({
+      x: 70 + i * 28 + Math.random() * 6,
+      y: GROUND_Y - 14,
+      vx: i % 2 ? 0.3 : -0.3,
+      wobble: Math.random() * Math.PI * 2,
+      mushroomy: false,
+      hopY: 0,
+    });
+  }
+  toads.length = 0;
+  for (let i = 0; i < 3; i++) {
+    toads.push({
+      x: VW + 40 + i * 26,
+      y: GROUND_Y - 14,
+      vx: 0,            // start parked offscreen
+      bob: Math.random() * Math.PI * 2,
+      target: null,
+      delivered: false,
+    });
+  }
+  sparkles.length = 0;
+  hero = { x: -30, y: GROUND_Y - 14, anim: 0, active: false, vx: 2.4 };
+}
+
+reset();
+
+// ═══════════════════════════════════════════════════════════════
+//  DRAW PRIMITIVES
+// ═══════════════════════════════════════════════════════════════
+function px(x, y, w, h, c) { ctx.fillStyle = c; ctx.fillRect(x|0, y|0, w, h); }
+
+function drawCloud(x, y) {
+  px(x+4, y+2, 16, 4, P.cloud);
+  px(x+2, y+4, 20, 4, P.cloud);
+  px(x,   y+6, 24, 4, P.cloud);
+  px(x,   y+10, 24, 2, P.cloudO);
+  px(x+4, y, 16, 2, P.cloudO);
+}
+
+// Fortress wall section: stone with battlements at top
+function drawWall(x, y, w, h) {
+  px(x, y, w, h, P.stone);
+  // shadow band
+  px(x, y + h - 4, w, 2, P.stoneD);
+  // brick lines
+  for (let i = 0; i < h; i += 6) {
+    px(x, y + i, w, 1, P.stoneD);
+    // staggered vertical seams
+    for (let j = 0; j < w; j += 12) {
+      const off = (i / 6) % 2 ? 6 : 0;
+      px(x + j + off, y + i, 1, 6, P.stoneD);
+    }
+  }
+  // top highlight
+  px(x, y, w, 1, P.stoneH);
+}
+
+function drawBattlements(x, y, w) {
+  // crenellations: alternating raised blocks 8 wide
+  for (let i = 0; i < w; i += 16) {
+    px(x + i, y - 6, 8, 6, P.stone);
+    px(x + i, y - 6, 8, 1, P.stoneH);
+    px(x + i, y - 1, 8, 1, P.stoneD);
+  }
+}
+
+function drawTower(x, baseY, h) {
+  const w = 28;
+  // body
+  drawWall(x, baseY - h, w, h);
+  // roof (conical -> triangle)
+  for (let i = 0; i < 14; i++) {
+    px(x + i, baseY - h - 14 + i, w - i*2, 1, i < 4 ? P.roofD : P.roof);
+  }
+  px(x + 12, baseY - h - 18, 4, 4, P.roof);
+  // little flag
+  px(x + 13, baseY - h - 22, 1, 4, P.flagPole);
+  px(x + 14, baseY - h - 22, 5, 3, P.flag);
+  // window
+  px(x + 11, baseY - h + 16, 6, 8, P.windowO);
+  px(x + 12, baseY - h + 17, 4, 6, P.window);
+  // door at base
+  px(x + 11, baseY - 14, 6, 14, P.door);
+  px(x + 11, baseY - 14, 6, 2, P.stoneD);
+}
+
+function drawBuilding(x, baseY, w, h, roofColor) {
+  // body
+  drawWall(x, baseY - h, w, h);
+  // peaked roof
+  for (let i = 0; i < w/2; i++) {
+    px(x + i, baseY - h - i, w - i*2, 1, i < 3 ? P.roofD : roofColor);
+  }
+  // window
+  px(x + w/2 - 3, baseY - h + 6, 6, 6, P.windowO);
+  px(x + w/2 - 2, baseY - h + 7, 4, 4, P.window);
+  // door
+  const dW = 5, dH = 9;
+  px(x + w/2 - dW/2 | 0, baseY - dH, dW, dH, P.door);
+}
+
+function drawGround() {
+  // top stripe (sandy)
+  px(0, GROUND_Y, VW, 4, P.groundT);
+  // body
+  px(0, GROUND_Y + 4, VW, VH - GROUND_Y - 4, P.groundB);
+  // cobble dots
+  for (let x = 0; x < VW; x += 8) {
+    const offset = (x % 16) === 0 ? 4 : 0;
+    px(x + offset, GROUND_Y + 10, 2, 2, P.groundD);
+    px(x + offset + 4, GROUND_Y + 18, 2, 2, P.groundD);
+    px(x + offset, GROUND_Y + 26, 2, 2, P.groundD);
+  }
+}
+
+// ── Sprites ──
+function drawHero(x, y, anim) {
+  const legFrame = Math.floor(anim) % 2;
+  if (legFrame === 0) { px(x+1, y+12, 4, 2, P.shoe); px(x+7, y+12, 4, 2, P.shoe); }
+  else                { px(x+1, y+11, 3, 3, P.shoe); px(x+8, y+12, 4, 2, P.shoe); }
+  px(x+1, y+8, 10, 4, P.pants);
+  px(x+5, y+6, 2, 2, P.pants);
+  px(x+1, y+5, 10, 4, P.shirtR);
+  px(x, y+6, 2, 4, P.shirtR);
+  px(x+10, y+6, 2, 4, P.shirtR);
+  px(x, y+9, 2, 2, P.skin);
+  px(x+10, y+9, 2, 2, P.skin);
+  px(x+2, y+2, 8, 4, P.skin);
+  px(x+3, y+4, 6, 1, P.hair);
+  px(x+7, y+3, 1, 2, P.black);
+  px(x+2, y+3, 1, 2, P.hair);
+  px(x+1, y, 10, 2, P.hatR);
+  px(x+1, y+2, 3, 1, P.hatR);
+  px(x+8, y+2, 3, 1, P.hatR);
+  px(x+2, y, 2, 1, '#FC9838');
+}
+
+function drawTurtle(t) {
+  const x = t.x | 0, y = (t.y - t.hopY) | 0;
+  const facing = t.vx >= 0 ? 1 : -1;
+  const wob = Math.sin(t.wobble) * 1;
+  // legs
+  px(x+1, y+12, 3, 2, P.bodyO);
+  px(x+8, y+12, 3, 2, P.bodyO);
+  // body / belly
+  px(x+2, y+8, 8, 4, P.bodyY);
+  // shell
+  px(x+1, y+3+wob, 10, 8, P.shellG);
+  px(x+1, y+3+wob, 10, 2, P.shellH);
+  px(x+1, y+9+wob, 10, 1, P.shellD);
+  // shell speckle
+  px(x+3, y+5+wob, 2, 2, P.shellD);
+  px(x+7, y+6+wob, 2, 2, P.shellD);
+  // head (peeks out front)
+  const hx = facing > 0 ? x + 8 : x - 2;
+  px(hx, y+5+wob, 4, 4, P.bodyY);
+  // eye
+  px(hx + (facing > 0 ? 2 : 1), y+6+wob, 1, 2, P.black);
+  // mushroom cap if mushroomy
+  if (t.mushroomy) {
+    drawMushroomCap(x + 1, y + wob - 4);
+  }
+}
+
+function drawMushroomCap(x, y) {
+  // dome
+  px(x+2, y, 6, 2, P.mushR);
+  px(x+1, y+2, 8, 2, P.mushR);
+  px(x, y+4, 10, 2, P.mushR);
+  // white spots
+  px(x+2, y+2, 2, 2, P.mushW);
+  px(x+6, y+3, 2, 2, P.mushW);
+  // stem hint
+  px(x+3, y+6, 4, 1, P.mushS);
+}
+
+function drawToad(t) {
+  const x = t.x | 0;
+  const bob = Math.sin(t.bob) * 0.5;
+  const y = (t.y + bob) | 0;
+  // legs
+  px(x+1, y+12, 3, 2, P.shoe);
+  px(x+7, y+12, 3, 2, P.shoe);
+  // body (vest white)
+  px(x+1, y+8, 10, 4, P.mushW);
+  // little outlines
+  px(x+1, y+11, 10, 1, P.bodyO);
+  // face
+  px(x+2, y+5, 8, 4, P.mushS);
+  // eyes
+  px(x+3, y+6, 1, 2, P.black);
+  px(x+8, y+6, 1, 2, P.black);
+  // mushroom cap (the iconic part)
+  px(x+1, y-3, 10, 2, P.mushR);
+  px(x, y-1, 12, 2, P.mushR);
+  px(x, y+1, 12, 2, P.mushR);
+  px(x+1, y+3, 10, 1, P.mushR);
+  // spots
+  px(x+3, y-1, 2, 2, P.mushW);
+  px(x+7, y, 2, 2, P.mushW);
+  px(x+5, y+2, 2, 1, P.mushW);
+}
+
+function drawSparkle(s) {
+  const a = s.life / s.maxLife;
+  if (a <= 0) return;
+  const x = s.x | 0, y = s.y | 0;
+  // 4-point star
+  px(x, y - 2, 1, 5, P.spark);
+  px(x - 2, y, 5, 1, P.spark);
+  if (a > 0.5) { px(x - 1, y - 1, 3, 3, P.spark); }
+}
+
+// ── Background paint ──
+function drawBackground() {
+  // sky
+  ctx.fillStyle = P.sky;
+  ctx.fillRect(0, 0, VW, GROUND_Y);
+  // clouds drift slowly
+  for (const c of clouds) {
+    const x = ((c.x + tick * 0.15) % (VW + 50)) - 25;
+    drawCloud(x, c.y);
+  }
+  // distant mountain silhouette
+  ctx.fillStyle = P.stoneD;
+  ctx.beginPath();
+  ctx.moveTo(0, GROUND_Y);
+  for (let x = 0; x <= VW; x += 8) {
+    const h = 40 + Math.sin(x * 0.05) * 14 + Math.cos(x * 0.03) * 10;
+    ctx.lineTo(x, GROUND_Y - h);
+  }
+  ctx.lineTo(VW, GROUND_Y);
+  ctx.closePath();
+  ctx.fill();
+
+  // Big fortress wall across the back of the city
+  const wallTop = 110;
+  drawWall(0, wallTop, VW, GROUND_Y - wallTop);
+  drawBattlements(0, wallTop, VW);
+
+  // 3 towers anchored on the wall
+  drawTower(20, GROUND_Y, 90);
+  drawTower(110, GROUND_Y, 110);
+  drawTower(208, GROUND_Y, 95);
+
+  // Buildings in front of the wall (city silhouette)
+  drawBuilding(60, GROUND_Y, 26, 38, '#A02080');
+  drawBuilding(150, GROUND_Y, 30, 44, '#208090');
+  drawBuilding(186, GROUND_Y, 22, 32, '#80A020');
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  CINEMATIC TIMELINE
+// ═══════════════════════════════════════════════════════════════
+function spawnSparkles(x, y, n) {
+  for (let i = 0; i < n; i++) {
+    sparkles.push({
+      x: x + (Math.random() - 0.5) * 8,
+      y: y + (Math.random() - 0.5) * 8,
+      vx: (Math.random() - 0.5) * 1.4,
+      vy: -0.4 - Math.random() * 1.2,
+      life: 24,
+      maxLife: 24,
+    });
+  }
+}
+
+function updateScene() {
+  const t = tick % CYCLE;
+
+  // ── Hero cameo: runs across at t=180..360 ──
+  if (t === 180) { hero.x = -16; hero.active = true; }
+  if (hero.active) {
+    hero.x += hero.vx;
+    hero.anim += 0.4;
+    if (hero.x > VW + 16) hero.active = false;
+  }
+
+  // ── Turtles waddle around the plaza ──
+  for (const turtle of turtles) {
+    turtle.x += turtle.vx;
+    turtle.wobble += 0.12;
+    if (turtle.x < 30) turtle.vx = Math.abs(turtle.vx);
+    if (turtle.x > VW - 30) turtle.vx = -Math.abs(turtle.vx);
+    // celebration hop once mushroomy + we're past the dance phase
+    if (turtle.mushroomy && t > 1200) {
+      turtle.hopY = Math.max(0, Math.sin((t + turtle.x) * 0.15) * 5);
+    } else {
+      turtle.hopY = 0;
+    }
+  }
+
+  // ── Toads enter from right at t=540, march left ──
+  for (let i = 0; i < toads.length; i++) {
+    const toad = toads[i];
+    const enterAt = 540 + i * 30;
+    if (t >= enterAt && toad.x > VW - 80 - i * 24) {
+      toad.vx = -0.6;
+    }
+    if (t < enterAt) {
+      toad.x = VW + 40 + i * 26;
+      toad.vx = 0;
+      toad.target = null;
+      toad.delivered = false;
+    }
+    // assign target turtle at t=900
+    if (t === 900 && !toad.target) {
+      // pick nearest non-mushroomy turtle
+      let best = null, bd = 1e9;
+      for (const tu of turtles) {
+        if (tu.mushroomy) continue;
+        const d = Math.abs(tu.x - toad.x);
+        if (d < bd) { bd = d; best = tu; }
+      }
+      toad.target = best;
+    }
+    if (toad.target && !toad.delivered) {
+      const dx = toad.target.x - toad.x;
+      toad.vx = Math.sign(dx) * 0.5;
+      if (Math.abs(dx) < 6) {
+        // deliver mushroom
+        toad.target.mushroomy = true;
+        toad.delivered = true;
+        spawnSparkles(toad.target.x + 6, toad.target.y, 14);
+      }
+    }
+    if (toad.delivered) {
+      // wander a bit, then leave
+      toad.vx = -0.4;
+    }
+    toad.x += toad.vx;
+    toad.bob += 0.15;
+  }
+
+  // mushroomify any remaining turtles by t=1200
+  if (t === 1200) {
+    for (const tu of turtles) {
+      if (!tu.mushroomy) {
+        tu.mushroomy = true;
+        spawnSparkles(tu.x + 6, tu.y, 12);
+      }
+    }
+  }
+
+  // sparkles
+  for (const s of sparkles) {
+    s.x += s.vx; s.y += s.vy; s.vy += 0.08; s.life--;
+  }
+  while (sparkles.length && sparkles[0].life <= 0) sparkles.shift();
+
+  // loop reset at end of cycle
+  if (tick > 0 && tick % CYCLE === 0) reset();
+}
+
+function drawScene() {
+  // background and ground
+  drawBackground();
+  drawGround();
+
+  // sort sprites by y for depth
+  const drawables = [];
+  for (const tu of turtles) drawables.push({ y: tu.y, draw: () => drawTurtle(tu) });
+  for (const to of toads)   drawables.push({ y: to.y, draw: () => drawToad(to) });
+  if (hero.active) drawables.push({ y: hero.y, draw: () => drawHero(hero.x, hero.y, hero.anim) });
+  drawables.sort((a, b) => a.y - b.y);
+  for (const d of drawables) d.draw();
+
+  // sparkles always on top
+  for (const s of sparkles) drawSparkle(s);
+
+  // title cards
+  drawTitle();
+}
+
+function drawTitle() {
+  const t = tick % CYCLE;
+  ctx.textAlign = 'center';
+
+  if (t < 180) {
+    const a = t < 30 ? t / 30 : t > 150 ? (180 - t) / 30 : 1;
+    ctx.globalAlpha = a;
+    ctx.fillStyle = P.black;
+    ctx.fillRect(40, 80, VW - 80, 60);
+    ctx.fillStyle = P.mushR;
+    ctx.fillRect(42, 82, VW - 84, 56);
+    ctx.fillStyle = P.white;
+    ctx.font = 'bold 18px "Courier New", monospace';
+    ctx.fillText('SHROOM CITY', VW/2, 108);
+    ctx.font = '8px "Courier New", monospace';
+    ctx.fillText('AN 8-BIT FORTRESS TALE', VW/2, 124);
+    ctx.globalAlpha = 1;
+  } else if (t >= 540 && t < 720) {
+    const u = t - 540;
+    const a = u < 20 ? u / 20 : u > 160 ? (180 - u) / 20 : 1;
+    ctx.globalAlpha = a;
+    ctx.fillStyle = P.black;
+    ctx.fillRect(VW/2 - 70, 28, 140, 20);
+    ctx.fillStyle = P.white;
+    ctx.font = '10px "Courier New", monospace';
+    ctx.fillText('...UNTIL THE GUESTS ARRIVED', VW/2, 42);
+    ctx.globalAlpha = 1;
+  } else if (t >= 1500) {
+    const u = t - 1500;
+    const a = u < 30 ? u / 30 : 1;
+    ctx.globalAlpha = a;
+    ctx.fillStyle = P.black;
+    ctx.fillRect(30, 78, VW - 60, 64);
+    ctx.fillStyle = P.shellG;
+    ctx.fillRect(32, 80, VW - 64, 60);
+    ctx.fillStyle = P.white;
+    ctx.font = 'bold 16px "Courier New", monospace';
+    ctx.fillText('THE CITY GOT', VW/2, 104);
+    ctx.fillText('MUSHROOMY', VW/2, 124);
+    ctx.font = '7px "Courier New", monospace';
+    ctx.fillStyle = P.mushW;
+    ctx.fillText('★  FIN  ★', VW/2, 138);
+    ctx.globalAlpha = 1;
+  }
+
+  ctx.textAlign = 'start';
+}
+
+function frame() {
+  updateScene();
+  drawScene();
+  tick++;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
